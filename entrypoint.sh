@@ -22,6 +22,28 @@ MySQLdb.connect(
 done
 echo "MySQL ready."
 
+echo "Waiting for Ollama at ${OLLAMA_HOST}:${OLLAMA_PORT}..."
+ATTEMPTS=0
+until python -c "
+import urllib.request, sys, os
+try:
+    urllib.request.urlopen(
+        f\"http://{os.environ['OLLAMA_HOST']}:{os.environ['OLLAMA_PORT']}/api/tags\",
+        timeout=3,
+    ).read()
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; do
+    ATTEMPTS=$((ATTEMPTS + 1))
+    if [ "$ATTEMPTS" -gt 20 ]; then
+        echo "Ollama not reachable after 60 seconds. Continuing anyway — startup will fail at first inference."
+        break
+    fi
+    echo "Ollama not ready, waiting 3 seconds... ($ATTEMPTS/20)"
+    sleep 3
+done
+echo "Ollama check complete."
+
 echo "Running migrations..."
 python manage.py migrate --noinput
 
@@ -33,7 +55,7 @@ exec gunicorn jiggasai.asgi:application \
     --worker-class uvicorn.workers.UvicornWorker \
     --workers 2 \
     --bind 0.0.0.0:8000 \
-    --timeout 120 \
+    --timeout 300 \
     --keep-alive 5 \
     --max-requests 1000 \
     --max-requests-jitter 100 \

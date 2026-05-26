@@ -97,7 +97,12 @@ LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/chat/'
 LOGOUT_REDIRECT_URL = '/login/'
 
-GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY', '')
 CHROMA_HOST = os.environ.get('CHROMA_HOST', 'localhost')
 CHROMA_PORT = int(os.environ.get('CHROMA_PORT', '8000'))
 TAVILY_API_KEY = os.environ.get('TAVILY_API_KEY', '')
+
+OLLAMA_HOST = os.environ.get('OLLAMA_HOST', 'host.docker.internal')
+OLLAMA_PORT = int(os.environ.get('OLLAMA_PORT', '11434'))
+OLLAMA_LLM_MODEL = os.environ.get('OLLAMA_LLM_MODEL', 'gemma4:latest')
+OLLAMA_EMBED_MODEL = os.environ.get('OLLAMA_EMBED_MODEL', 'nomic-embed-text')
+OLLAMA_BASE_URL = f'http://{OLLAMA_HOST}:{OLLAMA_PORT}'

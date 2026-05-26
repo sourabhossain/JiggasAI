@@ -1,6 +1,6 @@
 from typing import TypedDict, List
 from langgraph.graph import StateGraph, END
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
+from langchain_ollama import OllamaEmbeddings, ChatOllama
 from django.conf import settings
 from .chroma_client import get_collection
 
@@ -19,9 +19,9 @@ _agent = None
 
 
 def retrieve_node(state: RAGState) -> dict:
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/gemini-embedding-001",
-        google_api_key=settings.GOOGLE_API_KEY,
+    embeddings = OllamaEmbeddings(
+        model=settings.OLLAMA_EMBED_MODEL,
+        base_url=settings.OLLAMA_BASE_URL,
     )
     query_vector = embeddings.embed_query(state["query"])
 
@@ -41,7 +41,31 @@ def retrieve_node(state: RAGState) -> dict:
     }
 
 
+_FOLLOWUP_PATTERNS = (
+    "summarize what we", "summary of our", "what did we discuss",
+    "what have we talked", "recap our", "recap what",
+    "what did i say", "what did you say", "you just said", "i just said",
+    "earlier you", "earlier i", "before you",
+    "as i mentioned", "as you mentioned", "like i said", "like you said",
+    "what is my name", "what's my name", "do you remember my name",
+    "remember when i said", "remember when i told",
+    "what did you mean", "can you explain that", "tell me more about that",
+    "elaborate on that", "expand on that", "go back to what",
+    "আমরা কি নিয়ে কথা", "আগে কি বললে", "আগে কি বলেছিলে",
+    "আমাদের আলোচনা", "আমার নাম কি", "আমি কি বলেছিলাম",
+)
+
+
+def is_followup_query(query: str) -> bool:
+    q = (query or "").lower().strip()
+    return any(p in q for p in _FOLLOWUP_PATTERNS)
+
+
 def router(state: RAGState) -> str:
+    if is_followup_query(state["query"]):
+        print("[ROUTER] Follow-up query detected - routing to history_only")
+        return "history_only"
+
     chunks = state.get("retrieved_chunks", [])
 
     try:
@@ -64,6 +88,56 @@ def router(state: RAGState) -> str:
 
     print(f"[ROUTER] Found {len(chunks)} good chunks - routing to generate")
     return "generate"
+
+
+def _format_history(history: list) -> str:
+    """Render pair-format history (List[{user, assistant}]) as a transcript."""
+    parts = []
+    for turn in history or []:
+        u = turn.get("user", "")
+        a = turn.get("assistant", "")
+        if u:
+            parts.append(f"User: {u}")
+        if a:
+            parts.append(f"Assistant: {a}")
+    return "\n\n".join(parts)
+
+
+def history_only_node(state: RAGState) -> dict:
+    print("[HISTORY] Answering from conversation history only")
+
+    history_str = _format_history(state.get("history", []))
+
+    if not history_str:
+        return {
+            "answer": "আমাদের এখনো কোনো conversation হয়নি। কিছু জিজ্ঞেস করুন!",
+            "sources": [],
+        }
+
+    llm = ChatOllama(
+        model=settings.OLLAMA_LLM_MODEL,
+        base_url=settings.OLLAMA_BASE_URL,
+        temperature=0.2,
+        num_ctx=8192,
+        num_predict=1024,
+    )
+
+    prompt = f"""You are a helpful assistant. The user is asking about
+your conversation history, not about any documents.
+
+Here is the complete conversation so far:
+{history_str}
+
+Now answer this question about our conversation:
+{state["query"]}
+
+Answer naturally and helpfully based only on the conversation above."""
+
+    response = llm.invoke(prompt)
+    return {
+        "answer": response.content,
+        "sources": [],
+    }
 
 
 def no_docs_node(state: RAGState) -> dict:
@@ -121,6 +195,34 @@ def web_search_node(state: RAGState) -> dict:
         }
 
 
+def _build_rag_prompt(state: RAGState) -> str:
+    context = "\n\n".join(state["retrieved_chunks"])
+    history_str = _format_history(state.get("history", [])[-3:])
+    used_web = state.get("needs_web_search", False)
+    source_label = "web search results" if used_web else "uploaded documents"
+
+    history_block = (
+        f"Conversation history (use this for context and references):\n{history_str}\n\n"
+        if history_str else ""
+    )
+
+    return f"""You are JiggasAI, a helpful assistant.
+
+{history_block}Relevant content from {source_label}:
+{context}
+
+Instructions:
+- If the question refers to something from our conversation (a name, a
+  previous topic, or "what we discussed"), use the conversation history.
+- If the question is about the documents, use the document content.
+- If the answer is in neither, say so clearly.
+- Never say "the provided documents do not contain our conversation" —
+  conversation history is separate from documents.
+
+User question: {state["query"]}
+Answer:"""
+
+
 def generate_node(state: RAGState) -> dict:
     if state.get("web_search_error") and not state.get("retrieved_chunks"):
         return {
@@ -128,31 +230,14 @@ def generate_node(state: RAGState) -> dict:
                       "Please try again in a moment."
         }
 
-    context = "\n\n".join(state["retrieved_chunks"])
-
-    history_text = ""
-    for turn in state["history"]:
-        history_text += f"User: {turn['user']}\nAssistant: {turn['assistant']}\n\n"
-
-    used_web = state.get("needs_web_search", False)
-    source_label = "web search results" if used_web else "uploaded documents"
-
-    prompt = f"""You are a helpful assistant for JiggasAI.
-Answer the question based on the {source_label} below.
-If the answer is not in the context, say so clearly.
-
-Context:
-{context}
-{f"Previous conversation:{chr(10)}{history_text}" if history_text else ""}
-User: {state["query"]}
-Assistant:"""
-
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        google_api_key=settings.GOOGLE_API_KEY,
+    llm = ChatOllama(
+        model=settings.OLLAMA_LLM_MODEL,
+        base_url=settings.OLLAMA_BASE_URL,
         temperature=0.2,
+        num_ctx=8192,
+        num_predict=1024,
     )
-    response = llm.invoke(prompt)
+    response = llm.invoke(_build_rag_prompt(state))
 
     return {"answer": response.content}
 
@@ -161,6 +246,7 @@ def build_graph():
     graph = StateGraph(RAGState)
 
     graph.add_node("retrieve", retrieve_node)
+    graph.add_node("history_only", history_only_node)
     graph.add_node("no_docs", no_docs_node)
     graph.add_node("web_search", web_search_node)
     graph.add_node("generate", generate_node)
@@ -171,6 +257,7 @@ def build_graph():
         "retrieve",
         router,
         {
+            "history_only": "history_only",
             "generate": "generate",
             "web_search": "web_search",
             "no_docs": "no_docs",
@@ -178,6 +265,7 @@ def build_graph():
     )
 
     graph.add_edge("web_search", "generate")
+    graph.add_edge("history_only", END)
     graph.add_edge("no_docs", END)
     graph.add_edge("generate", END)
 
@@ -238,6 +326,14 @@ def run_agent_stream(query: str, history: list = None):
 
     route = router(state)
 
+    if route == "history_only":
+        answer = history_only_node(state)["answer"]
+        for word in answer.split(" "):
+            yield word + " "
+        yield "__SOURCES__"
+        yield f"__ANSWER__{answer}"
+        return
+
     if route == "no_docs":
         answer = no_docs_node(state)["answer"]
         for word in answer.split(" "):
@@ -257,28 +353,14 @@ def run_agent_stream(query: str, history: list = None):
         yield f"__ANSWER__{msg}"
         return
 
-    context = "\n\n".join(state["retrieved_chunks"])
-    history_text = ""
-    for turn in state["history"]:
-        history_text += f"User: {turn['user']}\nAssistant: {turn['assistant']}\n\n"
+    prompt = _build_rag_prompt(state)
 
-    used_web = state.get("needs_web_search", False)
-    source_label = "web search results" if used_web else "uploaded documents"
-
-    prompt = f"""You are a helpful assistant for JiggasAI.
-Answer the question based on the {source_label} below.
-If the answer is not in the context, say so clearly.
-
-Context:
-{context}
-{f"Previous conversation:{chr(10)}{history_text}" if history_text else ""}
-User: {state["query"]}
-Assistant:"""
-
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        google_api_key=settings.GOOGLE_API_KEY,
+    llm = ChatOllama(
+        model=settings.OLLAMA_LLM_MODEL,
+        base_url=settings.OLLAMA_BASE_URL,
         temperature=0.2,
+        num_ctx=8192,
+        num_predict=1024,
     )
 
     sources = state.get("sources", [])
@@ -296,12 +378,10 @@ Assistant:"""
         err_str = str(e).lower()
         print(f"[STREAM ERROR] {error_type}: {e}")
 
-        if "quota" in err_str or "rate" in err_str or "resource_exhausted" in err_str:
-            error_msg = "Google AI quota exceeded. Please try again later."
-        elif "api_key" in err_str or "credentials" in err_str or "api key not valid" in err_str:
-            error_msg = "AI service configuration error. Please contact admin."
-        elif "timeout" in err_str:
+        if "timeout" in err_str:
             error_msg = "Request timed out. Please try again."
+        elif "connection" in err_str or "refused" in err_str:
+            error_msg = "AI service is unreachable. Please try again in a moment."
         else:
             error_msg = "AI service temporarily unavailable. Please try again."
 

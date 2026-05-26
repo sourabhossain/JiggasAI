@@ -1,9 +1,10 @@
 import logging
 import os
 import re
+import time
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_ollama import OllamaEmbeddings
 from django.conf import settings
 from .chroma_client import get_collection
 
@@ -46,9 +47,9 @@ def ingest_document(pdf_path: str, doc_id: str) -> int:
             "The file may be scanned/image-based or password protected."
         )
 
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/gemini-embedding-001",
-        google_api_key=settings.GOOGLE_API_KEY,
+    embeddings = OllamaEmbeddings(
+        model=settings.OLLAMA_EMBED_MODEL,
+        base_url=settings.OLLAMA_BASE_URL,
     )
 
     texts = [chunk.page_content for chunk in chunks]
@@ -63,19 +64,33 @@ def ingest_document(pdf_path: str, doc_id: str) -> int:
     ]
     ids = [f"doc{doc_id}_chunk{i}" for i in range(len(chunks))]
 
-    logger.info(f"[ingestor] Embedding {len(texts)} chunks via Google API...")
-    embedded_vectors = embeddings.embed_documents(texts)
+    logger.info(f"[ingestor] Embedding {len(texts)} chunks via Ollama ({settings.OLLAMA_EMBED_MODEL})...")
+    BATCH_SIZE = 50
+    all_embeddings = []
+    total_batches = (len(texts) + BATCH_SIZE - 1) // BATCH_SIZE
+    for i in range(0, len(texts), BATCH_SIZE):
+        batch = texts[i:i + BATCH_SIZE]
+        batch_num = i // BATCH_SIZE + 1
+        logger.info(f"[ingestor] Embedding batch {batch_num}/{total_batches} ({len(batch)} chunks)")
+        for attempt in range(3):
+            try:
+                all_embeddings.extend(embeddings.embed_documents(batch))
+                break
+            except Exception as e:
+                if attempt < 2:
+                    logger.warning(f"[ingestor] Retry {attempt + 1} after error: {e}")
+                    time.sleep(2)
+                else:
+                    raise
+    logger.info(f"[ingestor] All {len(all_embeddings)} embeddings done.")
 
     collection = get_collection()
     collection.add(
         documents=texts,
-        embeddings=embedded_vectors,
+        embeddings=all_embeddings,
         metadatas=metadatas,
         ids=ids,
     )
 
     logger.info(f"[ingestor] Done. Stored {len(chunks)} chunks for document {doc_id}")
     return len(chunks)
-
-
-ingest_pdf = ingest_document

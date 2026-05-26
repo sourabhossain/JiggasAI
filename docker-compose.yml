@@ -13,6 +13,8 @@ services:
         condition: service_started
     volumes:
       - .:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   db:
     image: mysql:8.0
@@ -41,6 +43,31 @@ services:
     volumes:
       - chroma_data:/chroma/chroma
 
+  # Containerized Ollama for Linux/NVIDIA deploys.
+  # NOT started by default. Enable with: docker compose --profile gpu up -d
+  # On Mac dev, leave this off and use native `ollama serve` reached via
+  # OLLAMA_HOST=host.docker.internal (Apple Silicon Metal GPU isn't reachable
+  # from Docker on Mac, so a container here would fall back to slow CPU).
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    profiles: ["gpu"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_NUM_PARALLEL=2
+      - OLLAMA_MAX_LOADED_MODELS=2
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
 volumes:
   mysql_data:
   chroma_data:
+  ollama_data:

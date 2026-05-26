@@ -5,7 +5,7 @@ from django.http import StreamingHttpResponse, HttpResponseBadRequest, JsonRespo
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
 from .models import ChatSession, Message
-from agent.rag_agent import run_agent, run_agent_stream
+from agent.rag_agent import run_agent_stream
 
 
 _URL_RE = re.compile(r"^https?://[^\s<>\"']+$")
@@ -47,40 +47,6 @@ class ChatView(LoginRequiredMixin, View):
             'messages': session.messages.all(),
             'recent_sessions': recent_sessions,
             'current_session_id': session.id,
-        })
-
-
-class ChatAskView(LoginRequiredMixin, View):
-    def post(self, request):
-        data = json.loads(request.body)
-        query = data.get('query', '').strip()
-        session_id = data.get('session_id')
-
-        session = get_object_or_404(ChatSession, id=session_id)
-
-        previous = list(session.messages.all())
-        history = []
-        i = 0
-        while i < len(previous) - 1:
-            if previous[i].role == 'user' and previous[i + 1].role == 'assistant':
-                history.append({
-                    "user": previous[i].content,
-                    "assistant": previous[i + 1].content,
-                })
-                i += 2
-            else:
-                i += 1
-
-        Message.objects.create(session=session, role='user', content=query)
-
-        result = run_agent(query=query, history=history)
-        answer = result['answer']
-
-        Message.objects.create(session=session, role='assistant', content=answer)
-
-        return render(request, 'chat/partials/message.html', {
-            'user_message': query,
-            'assistant_message': answer,
         })
 
 
