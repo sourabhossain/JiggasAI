@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}Documents — JiggasAI{% endblock %}
+
+{% block content %}
+<div class="flex-1 overflow-y-auto scrollbar-hide">
+  <div class="max-w-4xl mx-auto px-6 py-8">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-xl font-semibold text-gray-900">Documents</h1>
+        <p class="text-sm text-gray-400 mt-0.5">Manage the knowledge base</p>
+      </div>
+      <a href="{% url 'document-upload' %}"
+        class="flex items-center gap-2 bg-accent text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-blue-600 transition">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+        </svg>
+        Upload PDF
+      </a>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-3 gap-4 mb-6">
+      <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
+        <p class="text-xs text-gray-400 uppercase tracking-wider font-medium mb-1">Documents</p>
+        <p class="text-2xl font-semibold text-gray-900">{{ documents|length }}</p>
+      </div>
+      <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
+        <p class="text-xs text-gray-400 uppercase tracking-wider font-medium mb-1">Total chunks</p>
+        <p class="text-2xl font-semibold text-gray-900">{{ total_chunks }}</p>
+      </div>
+      <div class="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
+        <p class="text-xs text-gray-400 uppercase tracking-wider font-medium mb-1">Users</p>
+        <p class="text-2xl font-semibold text-gray-900">{{ total_users }}</p>
+      </div>
+    </div>
+
+    <!-- Messages -->
+    {% if messages %}
+    <div class="mb-4 space-y-2">
+      {% for message in messages %}
+      <div class="px-4 py-3 rounded-xl text-sm border
+        {% if message.tags == 'success' %}bg-green-50 text-green-700 border-green-100
+        {% else %}bg-red-50 text-red-700 border-red-100{% endif %}">
+        {{ message }}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Table -->
+    {% if documents %}
+    <div class="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+      <table class="w-full">
+        <thead>
+          <tr class="border-b border-gray-100">
+            <th class="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Title</th>
+            <th class="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Status</th>
+            <th class="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Chunks</th>
+            <th class="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Uploaded</th>
+            <th class="text-left text-xs font-medium text-gray-400 uppercase tracking-wider px-5 py-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          {% for doc in documents %}
+          <tr class="hover:bg-gray-50 transition">
+            <td class="px-5 py-3.5 text-sm font-medium text-gray-800">{{ doc.title }}</td>
+            <td class="px-5 py-3.5">
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                {% if doc.status == 'ready' %}bg-green-100 text-green-700
+                {% elif doc.status == 'processing' %}bg-yellow-100 text-yellow-700
+                {% elif doc.status == 'error' %}bg-red-100 text-red-600
+                {% else %}bg-gray-100 text-gray-500{% endif %}">
+                {{ doc.status }}
+              </span>
+            </td>
+            <td class="px-5 py-3.5 text-sm text-gray-500">{{ doc.chunk_count }}</td>
+            <td class="px-5 py-3.5 text-sm text-gray-400">{{ doc.uploaded_at|date:"M d, Y" }}</td>
+            <td class="px-5 py-3.5">
+              <div class="flex items-center gap-3">
+                <button type="button"
+                  onclick="openPreview('{% url 'document-preview' doc.id %}', '{{ doc.title|escapejs }}')"
+                  class="inline-flex items-center gap-1.5 text-sm text-accent hover:text-blue-700 font-medium transition">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                  </svg>
+                  View
+                </button>
+                <span class="text-gray-200">|</span>
+                <form method="post" action="{% url 'document-delete' doc.id %}"
+                  onsubmit="return confirm('Delete \'{{ doc.title|escapejs }}\'?\n{{ doc.chunk_count }} chunks will be removed.\nThis cannot be undone.')">
+                  {% csrf_token %}
+                  <button type="submit"
+                    class="inline-flex items-center gap-1.5 text-sm text-red-500 hover:text-red-700 font-medium transition">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                    </svg>
+                    Delete
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="bg-white border border-gray-100 rounded-2xl shadow-sm p-12 text-center">
+      <div class="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
+        <svg class="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+      </div>
+      <p class="text-sm font-medium text-gray-500 mb-1">No documents yet</p>
+      <p class="text-xs text-gray-400 mb-4">Upload a PDF to start building the knowledge base.</p>
+      <a href="{% url 'document-upload' %}"
+        class="inline-flex items-center gap-1.5 text-sm text-accent hover:underline font-medium">
+        Upload your first PDF →
+      </a>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<!-- PDF Preview Modal -->
+<div id="preview-modal"
+  class="fixed inset-0 bg-black/50 z-50 hidden items-center justify-center p-4">
+  <div class="bg-white rounded-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+    <div class="flex items-center justify-between px-5 py-3.5 border-b border-gray-100 flex-shrink-0">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center flex-shrink-0">
+          <svg class="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+        </div>
+        <span id="modal-title" class="text-sm font-medium text-gray-800 truncate max-w-md"></span>
+      </div>
+      <div class="flex items-center gap-3 flex-shrink-0">
+        <a id="modal-open-tab" href="#" target="_blank" rel="noopener noreferrer"
+          class="text-xs text-accent hover:underline flex items-center gap-1">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+          </svg>
+          Open in new tab
+        </a>
+        <button type="button" onclick="closePreview()"
+          class="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 transition"
+          aria-label="Close preview">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div id="preview-loading" class="flex-1 flex items-center justify-center">
+      <div class="text-center">
+        <div class="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+        <p class="text-sm text-gray-500">Loading PDF...</p>
+      </div>
+    </div>
+    <iframe id="preview-iframe" src="" class="w-full flex-1 border-0 hidden"
+      title="PDF Preview" onload="iframeLoaded()"></iframe>
+  </div>
+</div>
+
+<script>
+function openPreview(url, title) {
+  const modal = document.getElementById('preview-modal');
+  const iframe = document.getElementById('preview-iframe');
+  const loading = document.getElementById('preview-loading');
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-open-tab').href = url;
+  loading.classList.remove('hidden');
+  iframe.classList.add('hidden');
+  iframe.src = url;
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  document.body.style.overflow = 'hidden';
+}
+
+function iframeLoaded() {
+  document.getElementById('preview-loading').classList.add('hidden');
+  document.getElementById('preview-iframe').classList.remove('hidden');
+}
+
+function closePreview() {
+  const modal = document.getElementById('preview-modal');
+  const iframe = document.getElementById('preview-iframe');
+  const loading = document.getElementById('preview-loading');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+  iframe.src = '';
+  iframe.classList.add('hidden');
+  loading.classList.remove('hidden');
+  document.body.style.overflow = '';
+}
+
+document.getElementById('preview-modal').addEventListener('click', function (e) {
+  if (e.target === this) closePreview();
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') closePreview();
+});
+</script>
+{% endblock %}

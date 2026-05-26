@@ -1,0 +1,14 @@
+Django>=4.2,<5.0
+mysqlclient>=2.2
+chromadb>=0.5.0
+langchain>=0.2.0
+langgraph>=0.2.0
+langchain-google-genai>=1.0.0
+langchain-chroma>=0.1.0
+langchain-community>=0.2.0
+pypdf>=4.0.0
+python-dotenv>=1.0.0
+tavily-python>=0.3.3
+gunicorn==22.0.0
+uvicorn[standard]==0.30.6
+whitenoise==6.7.0

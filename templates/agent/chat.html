@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat — JiggasAI</title>
+    <style>
+        body { font-family: sans-serif; max-width: 750px; margin: 40px auto; padding: 0 20px; }
+        h1 { color: #333; }
+        .turn { margin: 16px 0; }
+        .user-msg { background: #e8f0fe; padding: 10px 14px; border-radius: 8px; }
+        .bot-msg  { background: #f1f3f4; padding: 10px 14px; border-radius: 8px; margin-top: 6px; }
+        .label    { font-size: 0.75em; color: #888; margin-bottom: 4px; }
+        .sources  { font-size: 0.8em; color: #555; margin-top: 4px; }
+        form      { margin-top: 24px; display: flex; gap: 8px; }
+        input[type=text] { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; }
+        button    { padding: 10px 20px; background: #1a73e8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; }
+        a         { color: #1a73e8; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <h1>JiggasAI Chat</h1>
+    <p><a href="{% url 'document-list' %}">My Documents</a> &nbsp;|&nbsp; <a href="{% url 'document-upload' %}">Upload PDF</a></p>
+
+    {% for turn in history %}
+        <div class="turn">
+            <div class="label">You</div>
+            <div class="user-msg">{{ turn.user }}</div>
+            <div class="label" style="margin-top:8px">JiggasAI</div>
+            <div class="bot-msg">{{ turn.assistant }}</div>
+        </div>
+    {% empty %}
+        <p style="color:#888">Upload a PDF, then ask a question about it.</p>
+    {% endfor %}
+
+    {% if sources %}
+        <div class="sources">Sources: {{ sources|join:", " }}</div>
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+        <input type="text" name="query" placeholder="Ask something about your PDF..." autofocus>
+        <button type="submit">Ask</button>
+    </form>
+</body>
+</html>
